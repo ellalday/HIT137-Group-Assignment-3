@@ -2,8 +2,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 import cv2
+import os
 
 from image_editor.processor import ImageProcessor
+from image_editor.history import HistoryManager
 
 
 class EditorApp:
@@ -15,17 +17,28 @@ class EditorApp:
         self.current_path = None
         self.original_image = None
         self.cv_image = None
+
         self.processor = ImageProcessor()
+        self.history = HistoryManager()
 
         # ---------------- MENU ----------------
         self.menu_bar = tk.Menu(self.root)
         self.root.config(menu=self.menu_bar)
 
+        # File menu
         file_menu = tk.Menu(self.menu_bar, tearoff=0)
         file_menu.add_command(label="Open", command=self.open_image)
+        file_menu.add_command(label="Save", command=self.save_image)
+        file_menu.add_command(label="Save As", command=self.save_image_as)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
         self.menu_bar.add_cascade(label="File", menu=file_menu)
+
+        # Edit menu
+        edit_menu = tk.Menu(self.menu_bar, tearoff=0)
+        edit_menu.add_command(label="Undo", command=self.undo)
+        edit_menu.add_command(label="Redo", command=self.redo)
+        self.menu_bar.add_cascade(label="Edit", menu=edit_menu)
 
         # ---------------- LAYOUT ----------------
         self.main_frame = tk.Frame(self.root)
@@ -123,7 +136,10 @@ class EditorApp:
         self.original_image = img.copy()
         self.cv_image = img.copy()
 
-        # pre-fill resize boxes with current dimensions
+        # reset history for new image
+        self.history.clear()
+
+        # pre-fill resize boxes
         h, w = self.cv_image.shape[:2]
         self.width_entry.delete(0, tk.END)
         self.width_entry.insert(0, str(w))
@@ -131,7 +147,49 @@ class EditorApp:
         self.height_entry.insert(0, str(h))
 
         self.display_image(self.cv_image)
-        self.status_var.set(f"Loaded: {path} | {w} x {h}px")
+        self.status_var.set(f"Loaded: {os.path.basename(path)} | {w} x {h}px")
+
+    def save_image(self):
+        if self.cv_image is None:
+            messagebox.showerror("Error", "No image loaded.")
+            return
+
+        if not self.current_path:
+            self.save_image_as()
+            return
+
+        success = cv2.imwrite(self.current_path, self.cv_image)
+        if success:
+            self.status_var.set(f"Saved: {os.path.basename(self.current_path)}")
+        else:
+            messagebox.showerror("Error", "Could not save image.")
+
+    def save_image_as(self):
+        if self.cv_image is None:
+            messagebox.showerror("Error", "No image loaded.")
+            return
+
+        filetypes = [
+            ("PNG", "*.png"),
+            ("JPG", "*.jpg"),
+            ("BMP", "*.bmp"),
+        ]
+
+        path = filedialog.asksaveasfilename(
+            title="Save Image As",
+            defaultextension=".png",
+            filetypes=filetypes
+        )
+
+        if not path:
+            return
+
+        success = cv2.imwrite(path, self.cv_image)
+        if success:
+            self.current_path = path
+            self.status_var.set(f"Saved As: {os.path.basename(path)}")
+        else:
+            messagebox.showerror("Error", "Could not save image.")
 
     def display_image(self, cv_img):
         if len(cv_img.shape) == 2:
@@ -146,13 +204,34 @@ class EditorApp:
         self.image_label.config(image=self.tk_image, text="")
 
     # =========================================================
-    # FILTER METHODS
+    # UNDO / REDO
     # =========================================================
+
+    def undo(self):
+        if self.cv_image is None:
+            return
+        self.cv_image = self.history.undo(self.cv_image)
+        self.display_image(self.cv_image)
+        self.status_var.set("Undo")
+
+    def redo(self):
+        if self.cv_image is None:
+            return
+        self.cv_image = self.history.redo(self.cv_image)
+        self.display_image(self.cv_image)
+        self.status_var.set("Redo")
+
+    # =========================================================
+    # FILTER METHODS (push state BEFORE change)
+    # =========================================================
+
+    def _push_state(self):
+        self.history.push(self.cv_image)
 
     def apply_grayscale(self):
         if self.cv_image is None:
-            messagebox.showerror("Error", "No image loaded.")
             return
+        self._push_state()
         self.processor.set_image(self.cv_image)
         self.processor.grayscale()
         self.cv_image = self.processor.get_image()
@@ -160,8 +239,8 @@ class EditorApp:
 
     def apply_rotate(self, angle):
         if self.cv_image is None:
-            messagebox.showerror("Error", "No image loaded.")
             return
+        self._push_state()
         self.processor.set_image(self.cv_image)
         self.processor.rotate(angle)
         self.cv_image = self.processor.get_image()
@@ -169,8 +248,8 @@ class EditorApp:
 
     def apply_flip(self, mode):
         if self.cv_image is None:
-            messagebox.showerror("Error", "No image loaded.")
             return
+        self._push_state()
         self.processor.set_image(self.cv_image)
         self.processor.flip(mode)
         self.cv_image = self.processor.get_image()
@@ -178,8 +257,8 @@ class EditorApp:
 
     def apply_blur(self):
         if self.original_image is None:
-            messagebox.showerror("Error", "No image loaded.")
             return
+        self._push_state()
         intensity = self.blur_slider.get()
         self.processor.set_image(self.original_image.copy())
         self.processor.blur(intensity)
@@ -188,36 +267,27 @@ class EditorApp:
 
     def apply_adjustments(self):
         if self.original_image is None:
-            messagebox.showerror("Error", "No image loaded.")
             return
-
+        self._push_state()
         brightness_value = self.brightness_slider.get()
         contrast_value = self.contrast_slider.get()
-
         self.processor.set_image(self.original_image.copy())
         self.processor.brightness(brightness_value)
         self.processor.contrast(contrast_value)
-
         self.cv_image = self.processor.get_image()
         self.display_image(self.cv_image)
 
     def apply_edges(self):
         if self.cv_image is None:
-            messagebox.showerror("Error", "No image loaded.")
             return
-
-        # Edge detection applies to current image
+        self._push_state()
         self.processor.set_image(self.cv_image)
         self.processor.edge_detection(100, 200)
         self.cv_image = self.processor.get_image()
         self.display_image(self.cv_image)
 
-        h, w = self.cv_image.shape[:2]
-        self.status_var.set(f"Edge detection applied | {w} x {h}px")
-
     def apply_resize(self):
         if self.cv_image is None:
-            messagebox.showerror("Error", "No image loaded.")
             return
 
         try:
@@ -231,10 +301,10 @@ class EditorApp:
             messagebox.showerror("Error", "Width and Height must be greater than 0.")
             return
 
+        self._push_state()
         self.processor.set_image(self.cv_image)
         self.processor.resize(w, h)
         self.cv_image = self.processor.get_image()
-
         self.display_image(self.cv_image)
-        self.status_var.set(f"Resized to {w} x {h}px")
+
 
