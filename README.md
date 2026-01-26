@@ -1,4 +1,4 @@
-# HIT137 Group Assignment 3 — Image Editor (Tkinter + OpenCV)
+# HIT137 Group Assignment 3 - Image Editor (Tkinter + OpenCV)
 
 A desktop image editor built with **Python**, **Tkinter**, and **OpenCV**.  
 Supports loading, editing, undo/redo history, and saving common image formats.
