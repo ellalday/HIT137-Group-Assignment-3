@@ -20,7 +20,7 @@ class EditorApp:
 
         self.processor = ImageProcessor()
         self.history = HistoryManager()
-
+        self.is_grayscale = False  # implement non destructive grayscale
         # ---------------- MENU ----------------
         self.menu_bar = tk.Menu(self.root)
         self.root.config(menu=self.menu_bar)
@@ -44,7 +44,8 @@ class EditorApp:
         self.main_frame = tk.Frame(self.root)
         self.main_frame.pack(fill="both", expand=True)
 
-        self.image_label = tk.Label(self.main_frame, text="Open an image to begin")
+        self.image_label = tk.Label(
+            self.main_frame, text="Open an image to begin")
         self.image_label.pack(side="left", fill="both", expand=True)
 
         self.controls = tk.Frame(self.main_frame, width=280)
@@ -53,38 +54,54 @@ class EditorApp:
         tk.Label(self.controls, text="Controls").pack(pady=10)
 
         # ---------------- BUTTONS ----------------
-        tk.Button(self.controls, text="Grayscale", command=self.apply_grayscale).pack(pady=4)
+        tk.Button(self.controls, text="Grayscale",
+                  command=self.apply_grayscale).pack(pady=4)
 
-        tk.Button(self.controls, text="Rotate 90°", command=lambda: self.apply_rotate(90)).pack(pady=4)
-        tk.Button(self.controls, text="Rotate 180°", command=lambda: self.apply_rotate(180)).pack(pady=4)
-        tk.Button(self.controls, text="Rotate 270°", command=lambda: self.apply_rotate(270)).pack(pady=4)
+        tk.Button(self.controls, text="Rotate 90°",
+                  command=lambda: self.apply_rotate(90)).pack(pady=4)
+        tk.Button(self.controls, text="Rotate 180°",
+                  command=lambda: self.apply_rotate(180)).pack(pady=4)
+        tk.Button(self.controls, text="Rotate 270°",
+                  command=lambda: self.apply_rotate(270)).pack(pady=4)
 
-        tk.Button(self.controls, text="Flip Horizontal", command=lambda: self.apply_flip("horizontal")).pack(pady=4)
-        tk.Button(self.controls, text="Flip Vertical", command=lambda: self.apply_flip("vertical")).pack(pady=4)
+        tk.Button(self.controls, text="Flip Horizontal",
+                  command=lambda: self.apply_flip("horizontal")).pack(pady=4)
+        tk.Button(self.controls, text="Flip Vertical",
+                  command=lambda: self.apply_flip("vertical")).pack(pady=4)
 
         # ---------------- BLUR ----------------
         tk.Label(self.controls, text="Blur Intensity").pack(pady=(12, 0))
-        self.blur_slider = tk.Scale(self.controls, from_=0, to=10, orient="horizontal")
+        self.blur_slider = tk.Scale(
+            self.controls,
+            from_=0,
+            to=10,
+            orient="horizontal",
+            command=self.apply_blur_v2
+        )
         self.blur_slider.set(0)
         self.blur_slider.pack()
-        tk.Button(self.controls, text="Apply Blur", command=self.apply_blur).pack(pady=4)
 
         # ---------------- BRIGHTNESS + CONTRAST ----------------
         tk.Label(self.controls, text="Brightness").pack(pady=(12, 0))
-        self.brightness_slider = tk.Scale(self.controls, from_=-100, to=100, orient="horizontal")
+        self.brightness_slider = tk.Scale(
+            self.controls, from_=-100, to=100, orient="horizontal")
         self.brightness_slider.set(0)
         self.brightness_slider.pack()
 
         tk.Label(self.controls, text="Contrast").pack(pady=(12, 0))
-        self.contrast_slider = tk.Scale(self.controls, from_=0.5, to=3.0, resolution=0.1, orient="horizontal")
+        self.contrast_slider = tk.Scale(
+            self.controls, from_=0.5, to=3.0, resolution=0.1, orient="horizontal")
         self.contrast_slider.set(1.0)
         self.contrast_slider.pack()
 
-        tk.Button(self.controls, text="Apply Brightness + Contrast", command=self.apply_adjustments).pack(pady=6)
+        tk.Button(self.controls, text="Apply Brightness + Contrast",
+                  command=self.apply_adjustments).pack(pady=6)
 
         # ---------------- EDGE DETECTION ----------------
-        tk.Label(self.controls, text="Edge Detection (Canny)").pack(pady=(12, 0))
-        tk.Button(self.controls, text="Apply Edge Detection", command=self.apply_edges).pack(pady=4)
+        tk.Label(self.controls, text="Edge Detection (Canny)").pack(
+            pady=(12, 0))
+        tk.Button(self.controls, text="Apply Edge Detection",
+                  command=self.apply_edges).pack(pady=4)
 
         # ---------------- RESIZE ----------------
         tk.Label(self.controls, text="Resize").pack(pady=(12, 0))
@@ -100,12 +117,14 @@ class EditorApp:
         self.height_entry = tk.Entry(resize_frame, width=6)
         self.height_entry.grid(row=0, column=3, padx=3)
 
-        tk.Button(self.controls, text="Apply Resize", command=self.apply_resize).pack(pady=4)
+        tk.Button(self.controls, text="Apply Resize",
+                  command=self.apply_resize).pack(pady=4)
 
         # ---------------- STATUS BAR ----------------
         self.status_var = tk.StringVar()
         self.status_var.set("No image loaded")
-        self.status_bar = tk.Label(self.root, textvariable=self.status_var, anchor="w")
+        self.status_bar = tk.Label(
+            self.root, textvariable=self.status_var, anchor="w")
         self.status_bar.pack(side="bottom", fill="x")
 
         self.tk_image = None
@@ -123,7 +142,8 @@ class EditorApp:
             ("All files", "*.*")
         ]
 
-        path = filedialog.askopenfilename(title="Open Image", filetypes=filetypes)
+        path = filedialog.askopenfilename(
+            title="Open Image", filetypes=filetypes)
         if not path:
             return
 
@@ -160,7 +180,8 @@ class EditorApp:
 
         success = cv2.imwrite(self.current_path, self.cv_image)
         if success:
-            self.status_var.set(f"Saved: {os.path.basename(self.current_path)}")
+            self.status_var.set(
+                f"Saved: {os.path.basename(self.current_path)}")
         else:
             messagebox.showerror("Error", "Could not save image.")
 
@@ -229,12 +250,30 @@ class EditorApp:
         self.history.push(self.cv_image)
 
     def apply_grayscale(self):
+
         if self.cv_image is None:
             return
         self._push_state()
-        self.processor.set_image(self.cv_image)
-        self.processor.grayscale()
-        self.cv_image = self.processor.get_image()
+        if not self.is_grayscale:
+            gray = cv2.cvtColor(self.original_image, cv2.COLOR_BGR2GRAY)
+            self.cv_image = gray
+            self.is_grayscale = True
+        else:
+            self.cv_image = self.original_image.copy()
+            self.is_grayscale = False
+        self.display_image(self.cv_image)
+
+    def apply_blur_v2(self, value):
+        if self.original_image is None:
+            return
+        intensity = int(value) * 3
+
+        if intensity == 0:
+            self.cv_image = self.original_image.copy()
+        else:
+            self.processor.set_image(self.original_image.copy())
+            self.processor.blur(intensity)
+            self.cv_image = self.processor.get_image()
         self.display_image(self.cv_image)
 
     def apply_rotate(self, angle):
@@ -294,11 +333,13 @@ class EditorApp:
             w = int(self.width_entry.get())
             h = int(self.height_entry.get())
         except ValueError:
-            messagebox.showerror("Error", "Width and Height must be whole numbers.")
+            messagebox.showerror(
+                "Error", "Width and Height must be whole numbers.")
             return
 
         if w <= 0 or h <= 0:
-            messagebox.showerror("Error", "Width and Height must be greater than 0.")
+            messagebox.showerror(
+                "Error", "Width and Height must be greater than 0.")
             return
 
         self._push_state()
@@ -306,5 +347,3 @@ class EditorApp:
         self.processor.resize(w, h)
         self.cv_image = self.processor.get_image()
         self.display_image(self.cv_image)
-
-
