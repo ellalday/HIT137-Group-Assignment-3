@@ -12,14 +12,17 @@ class EditorApp:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("HIT137 Image Editor")
-        self.root.geometry("900x750")
+        self.root.geometry("1000x800")  # size increase to allow for resets
 
         self.current_path = None
-        self.original_image = None
-        self.cv_image = None
+        self.original_image = None  # original backup used for reset all
+        self.cv_image = None  # image with adjustments
+        self.base_image = None  # image with rotate/flip
 
         self.processor = ImageProcessor()
         self.history = HistoryManager()
+        self.restoring_state = False
+        self.is_grayscale = False  # implement non destructive grayscale
 
         # ---------------- MENU ----------------
         self.menu_bar = tk.Menu(self.root)
@@ -44,47 +47,92 @@ class EditorApp:
         self.main_frame = tk.Frame(self.root)
         self.main_frame.pack(fill="both", expand=True)
 
-        self.image_label = tk.Label(self.main_frame, text="Open an image to begin")
+        self.image_label = tk.Label(
+            self.main_frame, text="Open an image to begin")
         self.image_label.pack(side="left", fill="both", expand=True)
 
-        self.controls = tk.Frame(self.main_frame, width=280)
+        self.controls = tk.LabelFrame(
+            self.main_frame, text="Controls", width=280)
         self.controls.pack(side="right", fill="y")
 
-        tk.Label(self.controls, text="Controls").pack(pady=10)
+        self.adjustments_frame = tk.LabelFrame(
+            self.controls,
+            text="Image Adjustments",
+            padx=10,
+            pady=10
+        )
 
         # ---------------- BUTTONS ----------------
-        tk.Button(self.controls, text="Grayscale", command=self.apply_grayscale).pack(pady=4)
+        tk.Button(self.controls, text="Grayscale",
+                  command=self.apply_grayscale).pack(pady=4)
 
-        tk.Button(self.controls, text="Rotate 90°", command=lambda: self.apply_rotate(90)).pack(pady=4)
-        tk.Button(self.controls, text="Rotate 180°", command=lambda: self.apply_rotate(180)).pack(pady=4)
-        tk.Button(self.controls, text="Rotate 270°", command=lambda: self.apply_rotate(270)).pack(pady=4)
+        tk.Button(self.controls, text="Rotate 90°",
+                  command=lambda: self.apply_rotate(90)).pack(pady=4)
+        tk.Button(self.controls, text="Rotate 180°",
+                  command=lambda: self.apply_rotate(180)).pack(pady=4)
+        tk.Button(self.controls, text="Rotate 270°",
+                  command=lambda: self.apply_rotate(270)).pack(pady=4)
 
-        tk.Button(self.controls, text="Flip Horizontal", command=lambda: self.apply_flip("horizontal")).pack(pady=4)
-        tk.Button(self.controls, text="Flip Vertical", command=lambda: self.apply_flip("vertical")).pack(pady=4)
-
+        tk.Button(self.controls, text="Flip Horizontal",
+                  command=lambda: self.apply_flip("horizontal")).pack(pady=4)
+        tk.Button(self.controls, text="Flip Vertical",
+                  command=lambda: self.apply_flip("vertical")).pack(pady=4)
+        self.adjustments_frame.pack(fill="x", pady=12)
         # ---------------- BLUR ----------------
-        tk.Label(self.controls, text="Blur Intensity").pack(pady=(12, 0))
-        self.blur_slider = tk.Scale(self.controls, from_=0, to=10, orient="horizontal")
+        tk.Label(self.adjustments_frame,
+                 text="Blur Intensity").pack(pady=(12, 0))
+        self.blur_slider = tk.Scale(
+            self.adjustments_frame,
+            from_=0,
+            to=10,
+            orient="horizontal",
+            command=self.apply_adjustments_all
+        )
         self.blur_slider.set(0)
-        self.blur_slider.pack()
-        tk.Button(self.controls, text="Apply Blur", command=self.apply_blur).pack(pady=4)
+        self.blur_slider.pack(fill="x")
+        self.blur_slider.bind("<ButtonRelease>", lambda e: self._push_state())
 
         # ---------------- BRIGHTNESS + CONTRAST ----------------
-        tk.Label(self.controls, text="Brightness").pack(pady=(12, 0))
-        self.brightness_slider = tk.Scale(self.controls, from_=-100, to=100, orient="horizontal")
+
+        tk.Label(self.adjustments_frame, text="Brightness").pack(pady=(12, 0))
+
+        self.brightness_slider = tk.Scale(
+            self.adjustments_frame,
+            from_=-100,
+            to=100,
+            orient="horizontal",
+            command=self.apply_adjustments_all
+        )
         self.brightness_slider.set(0)
-        self.brightness_slider.pack()
+        self.brightness_slider.pack(fill="x")
+        self.brightness_slider.bind(
+            "<ButtonRelease-1>", lambda e: self._push_state())
 
-        tk.Label(self.controls, text="Contrast").pack(pady=(12, 0))
-        self.contrast_slider = tk.Scale(self.controls, from_=0.5, to=3.0, resolution=0.1, orient="horizontal")
+        tk.Label(self.adjustments_frame, text="Contrast").pack(pady=(12, 0))
+        self.contrast_slider = tk.Scale(
+            self.adjustments_frame,
+            from_=0.5,
+            to=3.0,
+            resolution=0.1,
+            orient="horizontal",
+            command=self.apply_adjustments_all)
+
         self.contrast_slider.set(1.0)
-        self.contrast_slider.pack()
+        self.contrast_slider.pack(fill="x")
+        self.contrast_slider.bind(
+            "<ButtonRelease-1>", lambda e: self._push_state())
 
-        tk.Button(self.controls, text="Apply Brightness + Contrast", command=self.apply_adjustments).pack(pady=6)
+        tk.Button(  # resets just the image adjustments
+            self.adjustments_frame,
+            text="Reset Adjustments",
+            command=self.reset_adjustments
+        ).pack(pady=5)
 
         # ---------------- EDGE DETECTION ----------------
-        tk.Label(self.controls, text="Edge Detection (Canny)").pack(pady=(12, 0))
-        tk.Button(self.controls, text="Apply Edge Detection", command=self.apply_edges).pack(pady=4)
+        tk.Label(self.controls, text="Edge Detection (Canny)").pack(
+            pady=(12, 0))
+        tk.Button(self.controls, text="Apply Edge Detection",
+                  command=self.apply_edges).pack(pady=4)
 
         # ---------------- RESIZE ----------------
         tk.Label(self.controls, text="Resize").pack(pady=(12, 0))
@@ -100,12 +148,22 @@ class EditorApp:
         self.height_entry = tk.Entry(resize_frame, width=6)
         self.height_entry.grid(row=0, column=3, padx=3)
 
-        tk.Button(self.controls, text="Apply Resize", command=self.apply_resize).pack(pady=4)
+        tk.Button(self.controls, text="Apply Resize",
+                  command=self.apply_resize).pack(pady=4)
+
+        # ---------------- RESET BUTTON --------------#
+
+        tk.Button(
+            self.controls,
+            text="Reset All",
+            command=self.reset_all
+        ).pack(pady=5)
 
         # ---------------- STATUS BAR ----------------
         self.status_var = tk.StringVar()
         self.status_var.set("No image loaded")
-        self.status_bar = tk.Label(self.root, textvariable=self.status_var, anchor="w")
+        self.status_bar = tk.Label(
+            self.root, textvariable=self.status_var, anchor="w")
         self.status_bar.pack(side="bottom", fill="x")
 
         self.tk_image = None
@@ -123,7 +181,8 @@ class EditorApp:
             ("All files", "*.*")
         ]
 
-        path = filedialog.askopenfilename(title="Open Image", filetypes=filetypes)
+        path = filedialog.askopenfilename(
+            title="Open Image", filetypes=filetypes)
         if not path:
             return
 
@@ -134,10 +193,22 @@ class EditorApp:
 
         self.current_path = path
         self.original_image = img.copy()
+        self.base_image = img.copy()
         self.cv_image = img.copy()
+
+        # set sliders to default
+        self.restoring_state = True
+        try:
+            self.blur_slider.set(0)
+            self.brightness_slider.set(0)
+            self.contrast_slider.set(1.0)
+            self.is_grayscale = False
+        finally:
+            self.restoring_state = False
 
         # reset history for new image
         self.history.clear()
+        self._push_state()
 
         # pre-fill resize boxes
         h, w = self.cv_image.shape[:2]
@@ -160,7 +231,8 @@ class EditorApp:
 
         success = cv2.imwrite(self.current_path, self.cv_image)
         if success:
-            self.status_var.set(f"Saved: {os.path.basename(self.current_path)}")
+            self.status_var.set(
+                f"Saved: {os.path.basename(self.current_path)}")
         else:
             messagebox.showerror("Error", "Could not save image.")
 
@@ -210,15 +282,19 @@ class EditorApp:
     def undo(self):
         if self.cv_image is None:
             return
-        self.cv_image = self.history.undo(self.cv_image)
-        self.display_image(self.cv_image)
+        state = self.history.undo()
+        if state is None:
+            return
+        self._restore_state(state)
         self.status_var.set("Undo")
 
     def redo(self):
         if self.cv_image is None:
             return
-        self.cv_image = self.history.redo(self.cv_image)
-        self.display_image(self.cv_image)
+        if not self.history.redo_stack:
+            return
+        state = self.history.redo()
+        self._restore_state(state)
         self.status_var.set("Redo")
 
     # =========================================================
@@ -226,65 +302,90 @@ class EditorApp:
     # =========================================================
 
     def _push_state(self):
-        self.history.push(self.cv_image)
-
-    def apply_grayscale(self):
         if self.cv_image is None:
             return
-        self._push_state()
-        self.processor.set_image(self.cv_image)
-        self.processor.grayscale()
-        self.cv_image = self.processor.get_image()
-        self.display_image(self.cv_image)
+        state = (
+            self.cv_image.copy(),
+            self.base_image.copy(),
+            self.blur_slider.get(),
+            self.brightness_slider.get(),
+            self.contrast_slider.get(),
+            self.is_grayscale
+        )
+        self.history.push(state)
+
+    def apply_grayscale(self):
+
+        if self.original_image is None:
+            return
+        self.is_grayscale = not self.is_grayscale
+        self.apply_adjustments_all()
+        self._push_state
 
     def apply_rotate(self, angle):
         if self.cv_image is None:
             return
-        self._push_state()
-        self.processor.set_image(self.cv_image)
+
+        self.processor.set_image(self.base_image)
         self.processor.rotate(angle)
-        self.cv_image = self.processor.get_image()
-        self.display_image(self.cv_image)
+        self.base_image = self.processor.get_image()
+        # self.display_image(self.cv_image)
+        self.apply_adjustments_all()
+        self._push_state()
 
     def apply_flip(self, mode):
         if self.cv_image is None:
             return
-        self._push_state()
-        self.processor.set_image(self.cv_image)
+        self.processor.set_image(self.base_image)
         self.processor.flip(mode)
+        self.base_image = self.processor.get_image()
+        # self.display_image(self.cv_image)
+        self.apply_adjustments_all()
+        self._push_state()
+
+    # applys all adjustment setting to the base image
+    def apply_adjustments_all(self, _=None):
+        if self.cv_image is None:
+            return
+        if getattr(self, "restoring_state", False):
+            return
+        blur = self.blur_slider.get()
+        brightness = self.brightness_slider.get()
+        contrast = self.contrast_slider.get()
+        img = self.base_image.copy()
+        if self.is_grayscale:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        self.processor.set_image(img)
+        if blur > 0:
+            self.processor.blur(int(blur) * 3)
+        self.processor.brightness(brightness)
+        self.processor.contrast(contrast)
+
         self.cv_image = self.processor.get_image()
         self.display_image(self.cv_image)
 
-    def apply_blur(self):
-        if self.original_image is None:
-            return
-        self._push_state()
-        intensity = self.blur_slider.get()
-        self.processor.set_image(self.original_image.copy())
-        self.processor.blur(intensity)
-        self.cv_image = self.processor.get_image()
-        self.display_image(self.cv_image)
+        # Hayden Note: allows all sliders to be used at the same time
 
-    def apply_adjustments(self):
-        if self.original_image is None:
+    # resets only visual adjustment, without losing rotations/flips
+    def reset_adjustments(self):
+        if self.cv_image is None:
             return
+        self.blur_slider.set(0)
+        self.brightness_slider.set(0)
+        self.contrast_slider.set(1.0)
+        self.is_grayscale = False
+        self.apply_adjustments_all()
         self._push_state()
-        brightness_value = self.brightness_slider.get()
-        contrast_value = self.contrast_slider.get()
-        self.processor.set_image(self.original_image.copy())
-        self.processor.brightness(brightness_value)
-        self.processor.contrast(contrast_value)
-        self.cv_image = self.processor.get_image()
-        self.display_image(self.cv_image)
 
     def apply_edges(self):
         if self.cv_image is None:
             return
-        self._push_state()
+
         self.processor.set_image(self.cv_image)
         self.processor.edge_detection(100, 200)
         self.cv_image = self.processor.get_image()
         self.display_image(self.cv_image)
+        self._push_state()
 
     def apply_resize(self):
         if self.cv_image is None:
@@ -294,17 +395,50 @@ class EditorApp:
             w = int(self.width_entry.get())
             h = int(self.height_entry.get())
         except ValueError:
-            messagebox.showerror("Error", "Width and Height must be whole numbers.")
+            messagebox.showerror(
+                "Error", "Width and Height must be whole numbers.")
             return
 
         if w <= 0 or h <= 0:
-            messagebox.showerror("Error", "Width and Height must be greater than 0.")
+            messagebox.showerror(
+                "Error", "Width and Height must be greater than 0.")
             return
 
-        self._push_state()
-        self.processor.set_image(self.cv_image)
+        self.processor.set_image(self.base_image)
         self.processor.resize(w, h)
-        self.cv_image = self.processor.get_image()
+        self.base_image = self.processor.get_image()
+        # self.display_image(self.cv_image)
+        self.apply_adjustments_all()
+        self._push_state()
+
+    def reset_all(self):  # fully resets editor to original image
+        if self.original_image is None:
+            return
+        self.blur_slider.set(0)
+        self.brightness_slider.set(0)
+        self.contrast_slider.set(1.0)
+        self.is_grayscale = False
+        self.base_image = self.original_image.copy()
+        self.cv_image = self.original_image.copy()
         self.display_image(self.cv_image)
+        # if hasattr(self, "width_entry"):
+        #     self.width_entry.delete(0, tk.END)
+        # if hasattr(self, "height_entry"):
+        #     self.height_entry.delete(0, tk.END)
+        self.history.clear()
 
+    # allows for undo/redo of live sliders, data collected from mouse clicks
+    def _restore_state(self, state):
+        img, base_image, blur, brightness, contrast, grayscale = state
+        self.restoring_state = True
+        try:
+            self.base_image = base_image.copy()
+            self.cv_image = img.copy()
+            self.is_grayscale = grayscale
+            self.blur_slider.set(blur)
+            self.brightness_slider.set(brightness)
+            self.contrast_slider.set(contrast)
+        finally:
+            self.restoring_state = False
 
+        self.display_image(self.cv_image)
