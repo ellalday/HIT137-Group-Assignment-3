@@ -4,8 +4,8 @@ from PIL import Image, ImageTk
 import cv2
 import os
 
-from image_editor.processor import ImageProcessor
-from image_editor.history import HistoryManager
+from processor import ImageProcessor
+from history import HistoryManager
 
 
 class EditorApp:
@@ -62,10 +62,12 @@ class EditorApp:
             pady=10
         )
 
-        # ---------------- BUTTONS ----------------
+        # ========== TRANSFORMATION BUTTONS ==========
+        # Grayscale toggle button
         tk.Button(self.controls, text="Grayscale",
                   command=self.apply_grayscale).pack(pady=4)
 
+        # Rotation buttons - 90, 180, and 270 degree options
         tk.Button(self.controls, text="Rotate 90°",
                   command=lambda: self.apply_rotate(90)).pack(pady=4)
         tk.Button(self.controls, text="Rotate 180°",
@@ -73,12 +75,14 @@ class EditorApp:
         tk.Button(self.controls, text="Rotate 270°",
                   command=lambda: self.apply_rotate(270)).pack(pady=4)
 
+        # Flip buttons - horizontal and vertical options
         tk.Button(self.controls, text="Flip Horizontal",
                   command=lambda: self.apply_flip("horizontal")).pack(pady=4)
         tk.Button(self.controls, text="Flip Vertical",
                   command=lambda: self.apply_flip("vertical")).pack(pady=4)
         self.adjustments_frame.pack(fill="x", pady=12)
-        # ---------------- BLUR ----------------
+        
+        # ========== BLUR SLIDER ==========
         tk.Label(self.adjustments_frame,
                  text="Blur Intensity").pack(pady=(12, 0))
         self.blur_slider = tk.Scale(
@@ -90,9 +94,10 @@ class EditorApp:
         )
         self.blur_slider.set(0)
         self.blur_slider.pack(fill="x")
+        # Push state to history only when slider is released, not on every movement
         self.blur_slider.bind("<ButtonRelease>", lambda e: self._push_state())
 
-        # ---------------- BRIGHTNESS + CONTRAST ----------------
+        # ========== BRIGHTNESS & CONTRAST SLIDERS ==========""
 
         tk.Label(self.adjustments_frame, text="Brightness").pack(pady=(12, 0))
 
@@ -122,21 +127,23 @@ class EditorApp:
         self.contrast_slider.bind(
             "<ButtonRelease-1>", lambda e: self._push_state())
 
+        # Reset button - resets only adjustments, keeps transformations (rotate/flip)
         tk.Button(  # resets just the image adjustments
             self.adjustments_frame,
             text="Reset Adjustments",
             command=self.reset_adjustments
         ).pack(pady=5)
 
-        # ---------------- EDGE DETECTION ----------------
+        # ========== EDGE DETECTION ==========
         tk.Label(self.controls, text="Edge Detection (Canny)").pack(
             pady=(12, 0))
         tk.Button(self.controls, text="Apply Edge Detection",
                   command=self.apply_edges).pack(pady=4)
 
-        # ---------------- RESIZE ----------------
+        # ========== RESIZE SECTION ==========
         tk.Label(self.controls, text="Resize").pack(pady=(12, 0))
 
+        # Width and height input fields for resize operation
         resize_frame = tk.Frame(self.controls)
         resize_frame.pack(pady=4)
 
@@ -151,31 +158,35 @@ class EditorApp:
         tk.Button(self.controls, text="Apply Resize",
                   command=self.apply_resize).pack(pady=4)
 
-        # ---------------- RESET BUTTON --------------#
-
+        # ========== RESET ALL BUTTON ==========
+        # Fully resets image to original state, clears all transformations and adjustments
         tk.Button(
             self.controls,
             text="Reset All",
             command=self.reset_all
         ).pack(pady=5)
 
-        # ---------------- STATUS BAR ----------------
+        # ========== STATUS BAR ==========
+        # Display status messages and image information at bottom of window
         self.status_var = tk.StringVar()
         self.status_var.set("No image loaded")
         self.status_bar = tk.Label(
             self.root, textvariable=self.status_var, anchor="w")
         self.status_bar.pack(side="bottom", fill="x")
 
+        # Placeholder for current image displayed in GUI
         self.tk_image = None
 
-    # =========================================================
-    # CORE METHODS
-    # =========================================================
+    # ===============================================
+    # CORE METHODS - Application lifecycle
+    # ===============================================
 
     def run(self):
+        """Start the GUI event loop"""
         self.root.mainloop()
 
     def open_image(self):
+        """Open an image file and initialize all image states"""
         filetypes = [
             ("Image files", "*.jpg *.jpeg *.png *.bmp"),
             ("All files", "*.*")
@@ -221,6 +232,7 @@ class EditorApp:
         self.status_var.set(f"Loaded: {os.path.basename(path)} | {w} x {h}px")
 
     def save_image(self):
+        """Save current image to existing file"""
         if self.cv_image is None:
             messagebox.showerror("Error", "No image loaded.")
             return
@@ -237,6 +249,7 @@ class EditorApp:
             messagebox.showerror("Error", "Could not save image.")
 
     def save_image_as(self):
+        """Save current image with a new filename"""
         if self.cv_image is None:
             messagebox.showerror("Error", "No image loaded.")
             return
@@ -264,6 +277,7 @@ class EditorApp:
             messagebox.showerror("Error", "Could not save image.")
 
     def display_image(self, cv_img):
+        """Convert OpenCV image to PhotoImage and display in GUI"""
         if len(cv_img.shape) == 2:
             rgb = cv2.cvtColor(cv_img, cv2.COLOR_GRAY2RGB)
         else:
@@ -275,11 +289,12 @@ class EditorApp:
         self.tk_image = ImageTk.PhotoImage(pil_img)
         self.image_label.config(image=self.tk_image, text="")
 
-    # =========================================================
-    # UNDO / REDO
-    # =========================================================
+    # ===============================================
+    # UNDO / REDO - History management
+    # ===============================================
 
     def undo(self):
+        """Undo last action by restoring previous state"""
         if self.cv_image is None:
             return
         state = self.history.undo()
@@ -289,6 +304,7 @@ class EditorApp:
         self.status_var.set("Undo")
 
     def redo(self):
+        """Redo last undone action"""
         if self.cv_image is None:
             return
         if not self.history.redo_stack:
@@ -297,11 +313,12 @@ class EditorApp:
         self._restore_state(state)
         self.status_var.set("Redo")
 
-    # =========================================================
-    # FILTER METHODS (push state BEFORE change)
-    # =========================================================
+    # ===============================================
+    # FILTER & ADJUSTMENT METHODS
+    # ===============================================
 
     def _push_state(self):
+        """Save current state to undo history"""
         if self.cv_image is None:
             return
         state = (
@@ -315,7 +332,7 @@ class EditorApp:
         self.history.push(state)
 
     def apply_grayscale(self):
-
+        """Toggle grayscale effect non-destructively"""
         if self.original_image is None:
             return
         self.is_grayscale = not self.is_grayscale
@@ -323,6 +340,7 @@ class EditorApp:
         self._push_state
 
     def apply_rotate(self, angle):
+        """Rotate image by specified angle (90, 180, 270 degrees)"""
         if self.cv_image is None:
             return
 
@@ -334,6 +352,7 @@ class EditorApp:
         self._push_state()
 
     def apply_flip(self, mode):
+        """Flip image horizontally or vertically"""
         if self.cv_image is None:
             return
         self.processor.set_image(self.base_image)
@@ -345,6 +364,7 @@ class EditorApp:
 
     # applys all adjustment setting to the base image
     def apply_adjustments_all(self, _=None):
+        """Apply all active adjustments (blur, brightness, contrast, grayscale) to base image"""
         if self.cv_image is None:
             return
         if getattr(self, "restoring_state", False):
@@ -368,6 +388,7 @@ class EditorApp:
 
     # resets only visual adjustment, without losing rotations/flips
     def reset_adjustments(self):
+        """Reset only visual adjustments while keeping rotations/flips"""
         if self.cv_image is None:
             return
         self.blur_slider.set(0)
@@ -378,6 +399,7 @@ class EditorApp:
         self._push_state()
 
     def apply_edges(self):
+        """Apply Canny edge detection filter to image"""
         if self.cv_image is None:
             return
 
@@ -388,6 +410,7 @@ class EditorApp:
         self._push_state()
 
     def apply_resize(self):
+        """Resize image to dimensions specified in width/height entry fields"""
         if self.cv_image is None:
             return
 
@@ -411,7 +434,8 @@ class EditorApp:
         self.apply_adjustments_all()
         self._push_state()
 
-    def reset_all(self):  # fully resets editor to original image
+    def reset_all(self):
+        """Fully reset editor to original image state"""
         if self.original_image is None:
             return
         self.blur_slider.set(0)
@@ -427,8 +451,8 @@ class EditorApp:
         #     self.height_entry.delete(0, tk.END)
         self.history.clear()
 
-    # allows for undo/redo of live sliders, data collected from mouse clicks
     def _restore_state(self, state):
+        """Restore a previously saved state (used for undo/redo)"""
         img, base_image, blur, brightness, contrast, grayscale = state
         self.restoring_state = True
         try:
