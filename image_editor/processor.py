@@ -1,3 +1,8 @@
+"""Processor - documentation note
+
+- Added brief file-level description for readability (docs/processor-comments)
+"""
+
 import cv2
 
 
@@ -98,4 +103,3 @@ class ImageProcessor:
             return
 
         self.image = cv2.resize(self.image, (width, height), interpolation=cv2.INTER_AREA)
-
