@@ -4,8 +4,8 @@ from PIL import Image, ImageTk
 import cv2
 import os
 
-from processor import ImageProcessor
-from history import HistoryManager
+from .processor import ImageProcessor
+from .history import HistoryManager
 
 
 class EditorApp:
